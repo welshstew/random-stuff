@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "artifactory-ingest.fullname" . }}
+  labels:
+{{ include "artifactory-ingest.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "artifactory-ingest.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "artifactory-ingest.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      serviceAccountName: {{ template "artifactory-ingest.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Values.sidecar.name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.sidecar.image.repository }}:{{ .Values.sidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecar.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: {{ .Values.main.name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.main.image.repository }}:{{ .Values.main.image.tag }}"
+          imagePullPolicy: {{ .Values.main.image.pullPolicy }}
+          env:
+          - name: LIFT_MODE
+            value: ingest
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          volumeMounts:
+          - mountPath: {{ .Values.main.volumes.mountPath }}
+            name: artifactory-home
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - metadata:
+      name: artifactory-home
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 5Gi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    
